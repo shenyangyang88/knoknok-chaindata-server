@@ -34,6 +34,15 @@ const logger = (winstonInstance: any): any => {
         }
         const stopTime = new Date();
 
+        let logLevel: string;
+        if (ctx.status >= 500) {
+            logLevel = "error";
+        } else if (ctx.status >= 400) {
+            logLevel = "warn";
+        } else {
+            logLevel = "info";
+        }
+
         let msg = "";
         if (errMsg) {
             msg = `http-transport ${stopTime.getTime() - startTime.getTime()}ms ${startTime.toLocaleString()}-${stopTime.toLocaleString()} ${ctx.method} ${ctx.originalUrl} ${ctx.status} ${errMsg}`;
@@ -41,7 +50,7 @@ const logger = (winstonInstance: any): any => {
             msg = `http-transport ${stopTime.getTime() - startTime.getTime()}ms ${startTime.toLocaleString()}-${stopTime.toLocaleString()} ${ctx.method} ${ctx.originalUrl} ${ctx.status}`;
         }
 
-        winstonInstance.log("info", msg);
+        winstonInstance.log(logLevel, msg);
     };
 };
 
