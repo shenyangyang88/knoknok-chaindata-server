@@ -1,7 +1,7 @@
 {
   "name": "knoknok-chaindata-server",
   "version": "1.0.0",
-  "description": "chaindata server.",
+  "description": "a chaindata interactive system.",
   "main": "dist/server.js",
   "private": "true",
   "scripts": {

@@ -1,7 +1,8 @@
 import { Context } from "koa";
-import { config } from "./config";
 import { transports, format } from "winston";
 import * as path from "path";
+
+import { config } from "./config";
 
 const logger = (winstonInstance: any): any => {
     winstonInstance.configure({
@@ -22,28 +23,25 @@ const logger = (winstonInstance: any): any => {
     });
 
     return async (ctx: Context, next: () => Promise<any>): Promise<void> => {
+        let errMsg = "";
 
-        const start = new Date().getTime();
+        const startTime = new Date();
         try {
             await next();
         } catch (err) {
             ctx.status = err.status || 500;
-            ctx.body = err.message;
+            ctx.body = errMsg = err.message;
         }
-        const ms = new Date().getTime() - start;
+        const stopTime = new Date();
 
-        let logLevel: string;
-        if (ctx.status >= 500) {
-            logLevel = "error";
-        } else if (ctx.status >= 400) {
-            logLevel = "warn";
+        let msg = "";
+        if (errMsg) {
+            msg = `http-transport ${stopTime.getTime() - startTime.getTime()}ms ${startTime.toLocaleString()}-${stopTime.toLocaleString()} ${ctx.method} ${ctx.originalUrl} ${ctx.status} ${errMsg}`;
         } else {
-            logLevel = "info";
+            msg = `http-transport ${stopTime.getTime() - startTime.getTime()}ms ${startTime.toLocaleString()}-${stopTime.toLocaleString()} ${ctx.method} ${ctx.originalUrl} ${ctx.status}`;
         }
 
-        const msg = `${ctx.method} ${ctx.originalUrl} ${ctx.status} ${ms}ms`;
-
-        winstonInstance.log(logLevel, msg);
+        winstonInstance.log("info", msg);
     };
 };
 

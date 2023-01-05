@@ -1,13 +1,13 @@
 export class Assets {
-  id: string;
-
   kkc: string;
-
-  balance: string;
+  governanceToken: string;
 }
 
 export class USDTAssets {
-  id: string;
-
   usdt: string;
+}
+
+export class KKCAssets {
+  price: string;
+  tendency: string;
 }

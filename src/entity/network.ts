@@ -1,40 +1,21 @@
 import BigNumber from "bignumber.js";
-import { generateMnemonic, mnemonicToSeedSync } from "bip39";
+import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from "bip39";
 import { hdkey } from "ethereumjs-wallet";
 import { bufferToHex, pubToAddress, toChecksumAddress } from "ethereumjs-util";
 import Web3 from "web3";
-import { AptosAccount, AptosClient, CoinClient } from "aptos";
+import { AptosAccount, AptosClient, CoinClient, TxnBuilderTypes } from "aptos";
 
 import { config } from "../config";
 import { Account } from "./account";
-import { Assets, USDTAssets } from "./wallet";
-import { Result } from "../entity/result";
+import { Assets, USDTAssets, KKCAssets } from "./wallet";
 
-const EVM_ABI = require("../evm_abi.json");
+const EVM_CONTRACT_ABI = require("../evm_contract_abi.json");
 
 export const APTOS = "aptos";
 export const BSC = "bsc";
 export const POLYGON = "polygon";
 
-export const BSC_TEST_RPC_URL = "https://rpc.ankr.com/bsc";
-export const POLYGON_TEST_RPC_URL = "https://polygon-rpc.com/";
-export const APTOS_TEST_RPC_URL = "https://fullnode.testnet.aptoslabs.com";
-export const BSC_RPC_URL = "https://rpc.ankr.com/bsc";
-export const POLYGON_RPC_URL = "https://polygon-rpc.com/";
-export const APTOS_RPC_URL = "https://fullnode.mainnet.aptoslabs.com";
-
-export const APTOS_TEST_CONTRACT_ADDRESS = "0xf0faa1ba6a30096987258e36a668a0b942dd59542580590ccbaf84c99ba52d1::knoknok_coin::KnoknokCoin";
-export const APTOS_CONTRACT_ADDRESS = "0xaa423d9c1a8029c1caa60ac4a4b1de3e323ddfa84ca5d74643624f8fd62ebe7b::knoknok_coin::KnoknokCoin";
-export const BSC_TEST_CONTRACT_ADDRESS = "0x2e1a87C9a9b121c0A72aE64d99138f586ffb8929";
-export const BSC_CONTRACT_ADDRESS = "0x2e1a87C9a9b121c0A72aE64d99138f586ffb8929";
-export const POLYGON_TEST_CONTRACT_ADDRESS = "0xEB368ae8720eF0CCb6DC1927a7c322065e524dc3";
-export const POLYGON_CONTRACT_ADDRESS = "0xEB368ae8720eF0CCb6DC1927a7c322065e524dc3";
-
-export const BSC_PLATFORM_ADDRESS = "";
-export const POLYGON_PLATFORM_ADDRESS = "";
-export const APTOS_PLATFORM_ADDRESS = "";
-export const APTOS_PLATFORM_PRIVATEKEY = "";
-
+export const APT_COIN = "0x1::aptos_coin::AptosCoin";
 export const APT_DECIMAL = "100000000";
 export const APT_KKC_DECIMAL = "1000000";
 
@@ -44,8 +25,17 @@ export abstract class Network {
   abstract fromMnemonic(mnemonic: string): Account;
 
   abstract getAssets(address: string): Promise<Assets>;
-  abstract getKKCAssetsData(): Promise<>;
+  async getKKCAssets(): Promise<KKCAssets> {
+    const assets = new KKCAssets();
+    assets.price = "0.015";
+    assets.tendency = "0";
+    return assets;
+  }
   abstract getUSDTAssetsList(addressList: string[]): Promise<USDTAssets[]>;
+
+  async serverCallBack(txHash: string, txStatus: boolean): Promise<void> {
+    //
+  }
 
   abstract toDepositKKC(fromPrivateKey: string, amount: string): Promise<string>;
   abstract toWithdrawKKC(toAddress: string, amount: string): Promise<string>;
@@ -64,68 +54,65 @@ export class Aptos extends Network {
 
   constructor() {
     super();
-    if (config.isDevMode) {
-      this.aptosClient = new AptosClient(APTOS_TEST_RPC_URL);
-      this.contractAddress = APTOS_TEST_CONTRACT_ADDRESS;
-    } else {
-      this.aptosClient = new AptosClient(APTOS_RPC_URL);
-      this.contractAddress = APTOS_CONTRACT_ADDRESS;
-    }
+    this.aptosClient = new AptosClient(config.aptosRPCUrl);
     this.coinClient = new CoinClient(this.aptosClient);
+    this.contractAddress = config.aptosContractAddress;
   }
 
   createAccount(): Account {
     const mnemonic = generateMnemonic();
-    const aptosAccount = AptosAccount.fromDerivePath(this.derivationPath, mnemonic).toPrivateKeyObject();
-    const account = new Account();
-    account.address = aptosAccount.address;
-    account.mnemonic = mnemonic;
-    account.privateKey = aptosAccount.privateKeyHex;
-    return account;
+    return this.fromMnemonic(mnemonic);
   }
 
   fromPrivateKey(privateKey: string): Account {
-    const aptosAccount = AptosAccount.fromAptosAccountObject({
+    const aptosAccountObj = AptosAccount.fromAptosAccountObject({
       privateKeyHex: privateKey
     }).toPrivateKeyObject();
     const account = new Account();
-    account.address = aptosAccount.address;
+    account.address = aptosAccountObj.address;
     return account;
   }
 
   fromMnemonic(mnemonic: string): Account {
-    const aptosAccount = AptosAccount.fromDerivePath(this.derivationPath, mnemonic).toPrivateKeyObject();
+    const aptosAccountObj = AptosAccount.fromDerivePath(this.derivationPath, mnemonic).toPrivateKeyObject();
     const account = new Account();
-    account.address = aptosAccount.address;
-    account.privateKey = aptosAccount.privateKeyHex;
+    account.address = aptosAccountObj.address;
+    account.mnemonic = mnemonic;
+    account.privateKey = aptosAccountObj.privateKeyHex;
     return account;
   }
 
   async getAssets(address: string): Promise<Assets> {
-    let apt = "0";
-    try {
-      const aptBalance = await this.coinClient.checkBalance(address);
-      if (aptBalance) {
-        apt = BigNumber(aptBalance.toString()).div(APT_DECIMAL).toString();
-      }
-    } catch (_) {
-      //
-    }
-
     let kkc = "0";
+    let governanceToken = "0";
+
+    const { AccountAddress } = TxnBuilderTypes;
+    AccountAddress.fromHex(address);
+
     try {
-      const kkcBalance = await this.coinClient.checkBalance(address, { coinType: this.contractAddress });
-      if (kkcBalance) {
-        kkc = BigNumber(kkcBalance.toString()).div(APT_KKC_DECIMAL).toString();
+      const typeTag = `0x1::coin::CoinStore<${APT_COIN}>`;
+      const kkcTypeTag = `0x1::coin::CoinStore<${this.contractAddress}>`;
+
+      const resources = await this.aptosClient.getAccountResources(address);
+
+      const accountAPTResource = resources.find((r) => r.type === typeTag);
+      if (accountAPTResource && accountAPTResource.data) {
+        const aptBalance = (accountAPTResource.data as any).coin.value;
+        governanceToken = this.fromBigInt(aptBalance, APT_DECIMAL);
+      }
+
+      const accountKKCResource = resources.find((r) => r.type === kkcTypeTag);
+      if (accountKKCResource && accountKKCResource.data) {
+        const kkcBalance = (accountKKCResource.data as any).coin.value;
+        kkc = this.fromBigInt(kkcBalance, APT_KKC_DECIMAL);
       }
     } catch (_) {
       //
     }
 
     const assets = new Assets();
-    assets.id = address;
     assets.kkc = kkc;
-    assets.balance = apt;
+    assets.governanceToken = governanceToken;
     return assets;
   }
 
@@ -133,77 +120,100 @@ export class Aptos extends Network {
     const list: USDTAssets[] = [];
     for (let i = 0; i < addressList.length; i++) {
       const assets = new USDTAssets();
-      assets.id = addressList[i];
       assets.usdt = "0";
       list.push(assets);
     }
     return list;
   }
 
-  async toDepositKKC(fromPrivateKey: string, amount: string): Promise<string> {
-    let kkcAmount = 0n;
-    if (Number(amount)) {
-      kkcAmount = BigInt(BigNumber(amount).multipliedBy(APT_KKC_DECIMAL).toString());
+  toBigInt(apt: string, decimal: string): string {
+    let a = "0";
+    let bApt = BigNumber(apt);
+    if (bApt.isNaN) {
+      throw new Error("invalid number");
     } else {
-      return "";
+      if (!bApt.isZero) {
+        a = bApt.multipliedBy(decimal).toString();
+      }
     }
+    return a;
+  }
 
-    const fromAccount = AptosAccount.fromAptosAccountObject({
-      privateKeyHex: fromPrivateKey
-    });
+  fromBigInt(bigInt: string, decimal: string): string {
+    let b = "0";
+    let bBigInt = BigNumber(bigInt);
+    if (bBigInt.isNaN) {
+      throw new Error("invalid number");
+    } else {
+      if (!bBigInt.isZero) {
+        b = bBigInt.div(decimal).toString();
+      }
+    }
+    return b;
+  }
 
-    const txHash = await this.coinClient.transfer(fromAccount, APTOS_PLATFORM_ADDRESS, kkcAmount, { coinType: this.contractAddress });
-    this.aptosClient.waitForTransaction(txHash, { checkSuccess: true });
+  async checkTransaction(fromAddress: string, amount?: string): Promise<void> {
+    const gas = await this.aptosClient.estimateGasPrice();
+    const apt = await this.coinClient.checkBalance(fromAddress);
+    const bApt = BigNumber(apt.toString());
+    if (amount) {
+      if (bApt.isZero || bApt.isLessThan(BigNumber(gas.gas_estimate).plus(amount))) {
+        throw new Error("insufficient balance, unable to complete the transaction");
+      }
+    } else {
+      if (bApt.isZero || bApt.isLessThan(gas.gas_estimate)) {
+        throw new Error("insufficient balance, unable to complete the transaction");
+      }
+    }
+  }
 
-    return txHash;
+  async wrappedWaitForTransaction(txHash: string): Promise<void> {
+    try {
+      await this.aptosClient.waitForTransaction(txHash, { checkSuccess: true });
+      this.serverCallBack(txHash, true);
+    } catch (error) {
+      this.serverCallBack(txHash, false);
+    }
+  }
+
+  async toDepositKKC(fromPrivateKey: string, amount: string): Promise<string> {
+    return this.toTransfer(fromPrivateKey, config.aptosPlatformAddress, amount);
   }
 
   async toWithdrawKKC(toAddress: string, amount: string): Promise<string> {
-    let kkcAmount = 0n;
-    if (Number(amount)) {
-      kkcAmount = BigInt(BigNumber(amount).multipliedBy(APT_KKC_DECIMAL).toString());
-    } else {
-      return "";
-    }
-
-    const fromAccount = AptosAccount.fromAptosAccountObject({
-      privateKeyHex: APTOS_PLATFORM_PRIVATEKEY
-    });
-
-    const txHash = await this.coinClient.transfer(fromAccount, toAddress, kkcAmount, { coinType: this.contractAddress });
-    this.aptosClient.waitForTransaction(txHash, { checkSuccess: true });
-
-    return txHash;
+    return this.toTransferKKC(config.aptosPlatformPrivateKey, toAddress, amount);
   }
 
   async toTransfer(fromPrivateKey: string, toAddress: string, amount: string): Promise<string> {
-    let aptAmount = 0n;
-    if (Number(amount)) {
-      aptAmount = BigInt(BigNumber(amount).multipliedBy(APT_DECIMAL).toString());
-    } else {
-      return "";
-    }
+    const { AccountAddress } = TxnBuilderTypes;
+    AccountAddress.fromHex(toAddress);
+
+    let aptAmount = this.toBigInt(amount, APT_DECIMAL);
 
     const fromAccount = AptosAccount.fromAptosAccountObject({
       privateKeyHex: fromPrivateKey
     });
+    await this.checkTransaction(fromAccount.address().hex(), aptAmount);
 
-    return this.coinClient.transfer(fromAccount, toAddress, aptAmount);
+    const txHash = await this.coinClient.transfer(fromAccount, toAddress, BigInt(aptAmount));
+    this.wrappedWaitForTransaction(txHash);
+    return txHash;
   }
 
   async toTransferKKC(fromPrivateKey: string, toAddress: string, amount: string): Promise<string> {
-    let kkcAmount = 0n;
-    if (Number(amount)) {
-      kkcAmount = BigInt(BigNumber(amount).multipliedBy(APT_KKC_DECIMAL).toString());
-    } else {
-      return "";
-    }
+    const { AccountAddress } = TxnBuilderTypes;
+    AccountAddress.fromHex(toAddress);
+
+    let kkcAmount = this.toBigInt(amount, APT_KKC_DECIMAL);
 
     const fromAccount = AptosAccount.fromAptosAccountObject({
       privateKeyHex: fromPrivateKey
     });
+    await this.checkTransaction(fromAccount.address().hex());
 
-    return this.coinClient.transfer(fromAccount, toAddress, kkcAmount, { coinType: this.contractAddress });
+    const txHash = await this.coinClient.transfer(fromAccount, toAddress, BigInt(kkcAmount), { coinType: this.contractAddress });
+    this.wrappedWaitForTransaction(txHash);
+    return txHash;
   }
 }
 
@@ -212,41 +222,39 @@ export class EVM extends Network {
 
   web3: Web3;
 
+  network: string;
   contractAddress: string;
 
   constructor(network: string) {
     super();
-    if (config.isDevMode) {
-      switch (network) {
-        case BSC:
-          this.web3 = new Web3(BSC_TEST_RPC_URL);
-          this.contractAddress = BSC_TEST_CONTRACT_ADDRESS;
-          break;
-        case POLYGON:
-          this.web3 = new Web3(POLYGON_TEST_RPC_URL);
-          this.contractAddress = POLYGON_TEST_CONTRACT_ADDRESS;
-          break;
-        default:
-          throw new Error("network not found.");
-      }
-    } else {
-      switch (network) {
-        case BSC:
-          this.web3 = new Web3(BSC_RPC_URL);
-          this.contractAddress = BSC_CONTRACT_ADDRESS;
-          break;
-        case POLYGON:
-          this.web3 = new Web3(POLYGON_RPC_URL);
-          this.contractAddress = POLYGON_CONTRACT_ADDRESS;
-          break;
-        default:
-          throw new Error("network not found.");
-      }
+    switch (network) {
+      case BSC:
+        this.web3 = new Web3(config.bscRPCUrl);
+        this.contractAddress = config.bscContractAddress;
+        break;
+      case POLYGON:
+        this.web3 = new Web3(config.polygonRPCUrl);
+        this.contractAddress = config.polygonContractAddress;
+        break;
+      default:
+        throw new Error("network is invalid");
     }
+    this.network = network;
   }
 
   createAccount(): Account {
     const mnemonic = generateMnemonic();
+    return this.fromMnemonic(mnemonic);
+  }
+
+  fromPrivateKey(privateKey: string): Account {
+    const ethAccount = this.web3.eth.accounts.privateKeyToAccount(privateKey);
+    const account = new Account();
+    account.address = ethAccount.address;
+    return account;
+  }
+
+  fromMnemonic(mnemonic: string): Account {
     const hdWallet = hdkey.fromMasterSeed(mnemonicToSeedSync(mnemonic)).derivePath(this.derivationPath).getWallet();
     const account = new Account();
     account.address = toChecksumAddress(bufferToHex(pubToAddress(hdWallet.getPublicKey(), true)));
@@ -255,47 +263,31 @@ export class EVM extends Network {
     return account;
   }
 
-  fromPrivateKey(privateKey: string): Account {
-    const wallet = this.web3.eth.accounts.privateKeyToAccount(privateKey);
-    const account = new Account();
-    account.address = wallet.address;
-    return account;
-  }
-
-  fromMnemonic(mnemonic: string): Account {
-    const hdWallet = hdkey.fromMasterSeed(mnemonicToSeedSync(mnemonic)).derivePath(this.derivationPath).getWallet();
-    const account = new Account();
-    account.address = toChecksumAddress(bufferToHex(pubToAddress(hdWallet.getPublicKey(), true)));
-    account.privateKey = bufferToHex(hdWallet.getPrivateKey());
-    return account;
-  }
-
   async getAssets(address: string): Promise<Assets> {
-    let balance = "0";
+    if (!this.web3.utils.isAddress(address)) {
+      throw new Error("invalid address");
+    }
+
+    let governanceToken = "0";
     try {
       const ethBalance = await this.web3.eth.getBalance(address);
-      if (Number(ethBalance)) {
-        balance = this.web3.utils.fromWei(ethBalance);
-      }
+      governanceToken = this.fromWei(ethBalance);
     } catch (_) {
       //
     }
 
     let kkc = "0";
     try {
-      const contract = new this.web3.eth.Contract(EVM_ABI, this.contractAddress);
+      const contract = new this.web3.eth.Contract(EVM_CONTRACT_ABI, this.contractAddress);
       const kkcBalance = await contract.methods.balanceOf(address).call();
-      if (Number(kkcBalance)) {
-        kkc = this.web3.utils.fromWei(kkcBalance);
-      }
+      kkc = this.fromWei(kkcBalance);
     } catch (_) {
       //
     }
 
     const assets = new Assets();
-    assets.id = address;
     assets.kkc = kkc;
-    assets.balance = balance;
+    assets.governanceToken = governanceToken;
     return assets;
   }
 
@@ -303,25 +295,144 @@ export class EVM extends Network {
     const list: USDTAssets[] = [];
     for (let i = 0; i < addressList.length; i++) {
       const assets = new USDTAssets();
-      assets.id = addressList[i];
       assets.usdt = "0";
       list.push(assets);
     }
     return list;
   }
 
-  async toDepositKKC(fromAddress: string, amount: string): Promise<Result> {
-    const result = new Result();
-    result.code = "0";
-    result.resultMsg = "success";
-    return result;
+  toWei(eth: string): string {
+    let wei = "0";
+    let bEth = BigNumber(eth);
+    if (bEth.isNaN) {
+      throw new Error("invalid number");
+    } else {
+      if (!bEth.isZero) {
+        wei = this.web3.utils.toWei(bEth.toString());
+      }
+    }
+    return wei;
   }
 
-  async toWithdrawKKC(toAddress: string, amount: string): Promise<Result> {
-    const result = new Result();
-    result.code = "0";
-    result.resultMsg = "success";
-    return result;
+  fromWei(wei: string): string {
+    let eth = "0";
+    let bWei = BigNumber(wei);
+    if (bWei.isNaN) {
+      throw new Error("invalid number");
+    } else {
+      if (!bWei.isZero) {
+        eth = this.web3.utils.fromWei(bWei.toString());
+      }
+    }
+    return eth;
+  }
+
+  async checkTransaction(fromAddress: string, amount?: string): Promise<void> {
+    const gas = await this.web3.eth.getGasPrice();
+    const eth = await this.web3.eth.getBalance(fromAddress);
+    const bEth = BigNumber(eth);
+    if (amount) {
+      if (bEth.isZero || bEth.isLessThan(BigNumber(gas).plus(amount))) {
+        throw new Error("insufficient balance, unable to complete the transaction");
+      }
+    } else {
+      if (bEth.isZero || bEth.isLessThan(gas)) {
+        throw new Error("insufficient balance, unable to complete the transaction");
+      }
+    }
+  }
+
+  async wrappedSendSignedTransaction(rawTransaction: string): Promise<string> {
+    const self = this;
+    return new Promise<string>((resolve, reject) => {
+      this.web3.eth.sendSignedTransaction(rawTransaction, (error, hash) => {
+        if (!error) {
+          resolve(hash);
+        } else {
+          reject(error);
+        }
+      })
+        .on('receipt', function (receipt) {
+          self.serverCallBack(receipt.transactionHash, receipt.status);
+        });
+    });
+  }
+
+  async toDepositKKC(fromPrivateKey: string, amount: string): Promise<string> {
+    let platformAddress = "";
+    switch (this.network) {
+      case BSC:
+        platformAddress = config.bscPlatformAddress;
+        break;
+      case POLYGON:
+        platformAddress = config.polygonPlatformAddress;
+        break;
+    }
+
+    return this.toTransferKKC(fromPrivateKey, platformAddress, amount);
+  }
+
+  async toWithdrawKKC(toAddress: string, amount: string): Promise<string> {
+    let platformPrivateKey = "";
+    switch (this.network) {
+      case BSC:
+        platformPrivateKey = config.bscPlatformPrivateKey;
+        break;
+      case POLYGON:
+        platformPrivateKey = config.polygonPlatformPrivateKey;
+        break;
+    }
+
+    return this.toTransferKKC(platformPrivateKey, toAddress, amount);
+  }
+
+  async toTransfer(fromPrivateKey: string, toAddress: string, amount: string): Promise<string> {
+    if (!this.web3.utils.isAddress(toAddress)) {
+      throw new Error("invalid address");
+    }
+
+    const ethAmount = this.toWei(amount);
+
+    const ethAccount = this.web3.eth.accounts.privateKeyToAccount(fromPrivateKey);
+    await this.checkTransaction(ethAccount.address, ethAmount);
+
+    const txParams = {
+      "to": toAddress,
+      "value": this.web3.utils.toHex(ethAmount),
+      "gasLimit": this.web3.utils.toHex(3000),
+    };
+    const tx = await ethAccount.signTransaction(txParams);
+    if (tx && tx.rawTransaction) {
+      return this.wrappedSendSignedTransaction(tx.rawTransaction);
+    }
+
+    throw new Error("invalid sign");
+  }
+
+  async toTransferKKC(fromPrivateKey: string, toAddress: string, amount: string): Promise<string> {
+    if (!this.web3.utils.isAddress(toAddress)) {
+      throw new Error("invalid address");
+    }
+
+    const kkcAmount = this.toWei(amount);
+
+    const ethAccount = this.web3.eth.accounts.privateKeyToAccount(fromPrivateKey);
+    await this.checkTransaction(ethAccount.address);
+
+    const contract = new this.web3.eth.Contract(EVM_CONTRACT_ABI, this.contractAddress);
+
+    const txParams = {
+      "to": this.contractAddress,
+      "value": "0x00",
+      "data": contract.methods.transfer(toAddress, kkcAmount).encodeABI(),
+      "gasLimit": this.web3.utils.toHex(3000000),
+    };
+    const tx = await ethAccount.signTransaction(txParams);
+    if (tx && tx.rawTransaction) {
+      return this.wrappedSendSignedTransaction(tx.rawTransaction);
+    }
+
+    throw new Error("invalid sign");
   }
 }
 
@@ -335,11 +446,11 @@ export class NetworkFactory {
         return new EVM(network);
     }
 
-    throw new Error("network not found.");
+    throw new Error("network is invalid");
   }
 }
 
-export const validateNetwork = (network: string): boolean => {
+export const networkValidator = (network: string): boolean => {
   switch (network) {
     case APTOS:
     case BSC:
@@ -348,3 +459,16 @@ export const validateNetwork = (network: string): boolean => {
   }
   return false;
 };
+
+export const addressValidator = (address: string): boolean => {
+  return !!address;
+}
+
+export const mnemonicValidator = (mnemonic: string): boolean => {
+  return validateMnemonic(mnemonic);
+}
+
+export const privateKeyValidator = (privateKey: string): boolean => {
+  return !!privateKey;
+}
+

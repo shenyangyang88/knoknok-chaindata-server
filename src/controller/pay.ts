@@ -1,17 +1,16 @@
 import { Context } from "koa";
 import { request, summary, description, query, body, responsesAll, tagsAll } from "koa-swagger-decorator";
 
-import { NetworkFactory } from "../entity/network";
+import { NetworkFactory, networkValidator, addressValidator, mnemonicValidator, privateKeyValidator } from "../entity/network";
 import { success, failure } from "../entity/result";
-import { validateNetwork } from "../utils/validator";
 
 @tagsAll(["Pay"])
-@responsesAll({ 200: { description: "success" }, 400: { description: "bad request" }, 404: { description: "not found" }, 500: { description: "internal server error" } })
+@responsesAll({ 200: { description: "success" }, 500: { description: "internal server error" } })
 export default class PayController {
   @request("post", "/pay/kkc/deposit")
   @body({
     network: { type: "string", required: true, description: "区块链网络：(aptos|bsc|polygon)" },
-    fromAddress: { type: "string", required: true, description: "钱包地址(hex)" },
+    fromPrivateKey: { type: "string", required: true, description: "钱包私钥(hex)" },
     amount: { type: "string", required: true, description: "金额(kkc)" },
   })
   @summary("kkc充值")
@@ -23,30 +22,35 @@ export default class PayController {
   {
     "code": 0,
     "resultMsg": "success",
-    "data": true
+    "data": "" //hash
   }
   {
-    "code": 1 //,
-    "resultMsg": ""
+    "code": 400,
+    "resultMsg": "bad request"
   }
+  {
+    "code": 500,
+    "resultMsg": "..."
+  }
+  错误：
+  http status 500 internal server error
   `)
   public static async toDepositKKC(ctx: Context): Promise<void> {
-    const isOK = validateNetwork((ctx.request.body as any).network) && (ctx.request.body as any).fromAddress && (ctx.request.body as any).amount;
+    const isOK = networkValidator((ctx.request.body as any).network) && privateKeyValidator((ctx.request.body as any).fromPrivateKey) && (ctx.request.body as any).amount;
     if (!isOK) {
-      ctx.status = 400;
-      ctx.body = "bad request";
+      ctx.status = 200;
+      ctx.body = failure(400, "bad request");
       return;
     }
 
     const network = NetworkFactory.create((ctx.request.body as any).network);
-    const result = await network.toDepositKKC((ctx.request.body as any).fromAddress, (ctx.request.body as any).amount);
-
-    if (result.code == "0") {
+    try {
+      const txHash = await network.toDepositKKC((ctx.request.body as any).fromPrivateKey, (ctx.request.body as any).amount);
       ctx.status = 200;
-      ctx.body = success(true);
-    } else {
+      ctx.body = success(txHash);
+    } catch (error) {
       ctx.status = 200;
-      ctx.body = failure(Number(result.code), result.resultMsg);
+      ctx.body = failure(500, error.message);
     }
   }
 
@@ -65,30 +69,36 @@ export default class PayController {
   {
     "code": 0,
     "resultMsg": "success",
-    "data": true
+    "data": "" //hash
   }
   {
-    "code": 1 //,
-    "resultMsg": ""
+    "code": 400,
+    "resultMsg": "bad request"
   }
+  {
+    "code": 500,
+    "resultMsg": "..."
+  }
+  错误：
+  http status 500 internal server error
   `)
   public static async toWithdrawKKC(ctx: Context): Promise<void> {
-    const isOK = validateNetwork((ctx.request.body as any).network) && (ctx.request.body as any).toAddress && (ctx.request.body as any).amount;
+    const isOK = networkValidator((ctx.request.body as any).network) && addressValidator((ctx.request.body as any).toAddress) && (ctx.request.body as any).amount;
     if (!isOK) {
-      ctx.status = 400;
-      ctx.body = "bad request";
+      ctx.status = 200;
+      ctx.body = failure(400, "bad request");
       return;
     }
 
     const network = NetworkFactory.create((ctx.request.body as any).network);
-    const result = await network.toWithdrawKKC((ctx.request.body as any).toAddress, (ctx.request.body as any).amount);
 
-    if (result.code == "0") {
+    try {
+      const txHash = await network.toWithdrawKKC((ctx.request.body as any).toAddress, (ctx.request.body as any).amount);
       ctx.status = 200;
-      ctx.body = success(true);
-    } else {
+      ctx.body = success(txHash);
+    } catch (error) {
       ctx.status = 200;
-      ctx.body = failure(Number(result.code), result.resultMsg);
+      ctx.body = failure(500, error.message);
     }
   }
 }
