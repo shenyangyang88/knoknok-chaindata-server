@@ -114,6 +114,7 @@ export default class WalletController {
     "resultMsg": "success",
     "data": [
       {
+        "address": "0x...",
         "usdt": "123.2"
       }
     ]
