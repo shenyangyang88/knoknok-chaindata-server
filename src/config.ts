@@ -10,6 +10,8 @@ export interface Config {
   aptosRPCUrl: string;
   bscRPCUrl: string;
   polygonRPCUrl: string;
+  bscChainID: string;
+  polygonChainID: string;
 
   aptosContractAddress: string;
   bscContractAddress: string;
@@ -21,6 +23,8 @@ export interface Config {
   bscPlatformPrivateKey: string;
   polygonPlatformAddress: string;
   polygonPlatformPrivateKey: string;
+
+  datasourceRpcURL: string;
 }
 
 const isDevMode = process.env.NODE_ENV == "development";
@@ -34,6 +38,8 @@ const config: Config = {
   aptosRPCUrl: process.env.APTOS_RPC_URL || "",
   bscRPCUrl: process.env.BSC_RPC_URL || "",
   polygonRPCUrl: process.env.POLYGON_RPC_URL || "",
+  bscChainID: process.env.BSC_CHAINID || "",
+  polygonChainID: process.env.POLYGON_CHAINID || "",
 
   // contract
   aptosContractAddress: process.env.APTOS_CONTRACT_ADDRESS || "",
@@ -47,6 +53,8 @@ const config: Config = {
   bscPlatformPrivateKey: process.env.BSC_PLATFORM_PRIVATEKEY || "",
   polygonPlatformAddress: process.env.POLYGON_PLATFORM_ADDRESS || "",
   polygonPlatformPrivateKey: process.env.POLYGON_PLATFORM_PRIVATEKEY || "",
+
+  datasourceRpcURL: process.env.DATASOURCE_RPC_URL || "",
 };
 
 export { config };

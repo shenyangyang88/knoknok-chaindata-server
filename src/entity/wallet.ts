@@ -4,6 +4,7 @@ export class Assets {
 }
 
 export class USDTAssets {
+  address: string;
   usdt: string;
 }
 
