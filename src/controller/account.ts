@@ -141,7 +141,7 @@ export default class AccountController {
   接口返回的数据全部需要存库。
   `)
   public static async fromMnemonic(ctx: Context): Promise<void> {
-    let isOK = networkValidator((ctx.request.body as any).network) && mnemonicValidator((ctx.request.body as any).mnemonic);
+    const isOK = networkValidator((ctx.request.body as any).network) && mnemonicValidator((ctx.request.body as any).mnemonic);
     if (!isOK) {
       ctx.status = 200;
       ctx.body = failure(400, "bad request");

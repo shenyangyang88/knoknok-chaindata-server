@@ -3,7 +3,7 @@ import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from "bip39";
 import { hdkey } from "ethereumjs-wallet";
 import { bufferToHex, pubToAddress, toChecksumAddress } from "ethereumjs-util";
 import Web3 from "web3";
-import { AptosAccount, AptosClient, CoinClient, TxnBuilderTypes } from "aptos";
+import { AptosAccount, AptosClient, CoinClient, TxnBuilderTypes, MaybeHexString, OptionalTransactionArgs, getAddressFromAccountOrAddress } from "aptos";
 
 import { config } from "../config";
 import { Account } from "./account";
@@ -34,6 +34,8 @@ export abstract class Network {
   abstract getUSDTAssetsList(addressList: string[]): Promise<USDTAssets[]>;
 
   async serverCallBack(txHash: string, txStatus: boolean): Promise<void> {
+    console.log(txHash);
+    console.log(txStatus);
     //
   }
 
@@ -48,14 +50,14 @@ export class Aptos extends Network {
   derivationPath = "m/44'/637'/0'/0'/0'";
 
   aptosClient: AptosClient;
-  coinClient: CoinClient;
+  coinClient: MyCoinClient;
 
   contractAddress: string;
 
   constructor() {
     super();
     this.aptosClient = new AptosClient(config.aptosRPCUrl);
-    this.coinClient = new CoinClient(this.aptosClient);
+    this.coinClient = new MyCoinClient(this.aptosClient);
     this.contractAddress = config.aptosContractAddress;
   }
 
@@ -128,12 +130,12 @@ export class Aptos extends Network {
 
   toBigInt(apt: string, decimal: string): string {
     let a = "0";
-    let bApt = BigNumber(apt);
-    if (bApt.isNaN) {
+    const bApt = BigNumber(apt);
+    if (bApt.isNaN()) {
       throw new Error("invalid number");
     } else {
-      if (!bApt.isZero) {
-        a = bApt.multipliedBy(decimal).toString();
+      if (!bApt.isZero()) {
+        a = bApt.multipliedBy(decimal).toFixed();
       }
     }
     return a;
@@ -141,27 +143,26 @@ export class Aptos extends Network {
 
   fromBigInt(bigInt: string, decimal: string): string {
     let b = "0";
-    let bBigInt = BigNumber(bigInt);
-    if (bBigInt.isNaN) {
+    const bBigInt = BigNumber(bigInt);
+    if (bBigInt.isNaN()) {
       throw new Error("invalid number");
     } else {
-      if (!bBigInt.isZero) {
-        b = bBigInt.div(decimal).toString();
+      if (!bBigInt.isZero()) {
+        b = bBigInt.div(decimal).toFixed();
       }
     }
     return b;
   }
 
   async checkTransaction(fromAddress: string, amount?: string): Promise<void> {
-    const gas = await this.aptosClient.estimateGasPrice();
     const apt = await this.coinClient.checkBalance(fromAddress);
     const bApt = BigNumber(apt.toString());
     if (amount) {
-      if (bApt.isZero || bApt.isLessThan(BigNumber(gas.gas_estimate).plus(amount))) {
+      if (bApt.isZero() || bApt.isLessThan(amount)) {
         throw new Error("insufficient balance, unable to complete the transaction");
       }
     } else {
-      if (bApt.isZero || bApt.isLessThan(gas.gas_estimate)) {
+      if (bApt.isZero()) {
         throw new Error("insufficient balance, unable to complete the transaction");
       }
     }
@@ -188,14 +189,14 @@ export class Aptos extends Network {
     const { AccountAddress } = TxnBuilderTypes;
     AccountAddress.fromHex(toAddress);
 
-    let aptAmount = this.toBigInt(amount, APT_DECIMAL);
+    const aptAmount = this.toBigInt(amount, APT_DECIMAL);
 
     const fromAccount = AptosAccount.fromAptosAccountObject({
       privateKeyHex: fromPrivateKey
     });
     await this.checkTransaction(fromAccount.address().hex(), aptAmount);
 
-    const txHash = await this.coinClient.transfer(fromAccount, toAddress, BigInt(aptAmount));
+    const txHash = await this.coinClient.transfer(fromAccount, toAddress, BigInt(aptAmount), { createReceiverIfMissing: true });
     this.wrappedWaitForTransaction(txHash);
     return txHash;
   }
@@ -204,7 +205,7 @@ export class Aptos extends Network {
     const { AccountAddress } = TxnBuilderTypes;
     AccountAddress.fromHex(toAddress);
 
-    let kkcAmount = this.toBigInt(amount, APT_KKC_DECIMAL);
+    const kkcAmount = this.toBigInt(amount, APT_KKC_DECIMAL);
 
     const fromAccount = AptosAccount.fromAptosAccountObject({
       privateKeyHex: fromPrivateKey
@@ -212,6 +213,7 @@ export class Aptos extends Network {
     await this.checkTransaction(fromAccount.address().hex());
 
     const txHash = await this.coinClient.transfer(fromAccount, toAddress, BigInt(kkcAmount), { coinType: this.contractAddress });
+    // const txHash = await this.coinClient.transferCoin(fromAccount, toAddress, BigInt(kkcAmount), this.contractAddress);
     this.wrappedWaitForTransaction(txHash);
     return txHash;
   }
@@ -303,12 +305,12 @@ export class EVM extends Network {
 
   toWei(eth: string): string {
     let wei = "0";
-    let bEth = BigNumber(eth);
-    if (bEth.isNaN) {
+    const bEth = BigNumber(eth);
+    if (bEth.isNaN()) {
       throw new Error("invalid number");
     } else {
-      if (!bEth.isZero) {
-        wei = this.web3.utils.toWei(bEth.toString());
+      if (!bEth.isZero()) {
+        wei = this.web3.utils.toWei(bEth.toFixed());
       }
     }
     return wei;
@@ -316,12 +318,12 @@ export class EVM extends Network {
 
   fromWei(wei: string): string {
     let eth = "0";
-    let bWei = BigNumber(wei);
-    if (bWei.isNaN) {
+    const bWei = BigNumber(wei);
+    if (bWei.isNaN()) {
       throw new Error("invalid number");
     } else {
-      if (!bWei.isZero) {
-        eth = this.web3.utils.fromWei(bWei.toString());
+      if (!bWei.isZero()) {
+        eth = this.web3.utils.fromWei(bWei.toFixed());
       }
     }
     return eth;
@@ -332,11 +334,11 @@ export class EVM extends Network {
     const eth = await this.web3.eth.getBalance(fromAddress);
     const bEth = BigNumber(eth);
     if (amount) {
-      if (bEth.isZero || bEth.isLessThan(BigNumber(gas).plus(amount))) {
+      if (bEth.isZero() || bEth.isLessThan(BigNumber(gas).plus(amount))) {
         throw new Error("insufficient balance, unable to complete the transaction");
       }
     } else {
-      if (bEth.isZero || bEth.isLessThan(gas)) {
+      if (bEth.isZero() || bEth.isLessThan(gas)) {
         throw new Error("insufficient balance, unable to complete the transaction");
       }
     }
@@ -352,7 +354,7 @@ export class EVM extends Network {
           reject(error);
         }
       })
-        .on('receipt', function (receipt) {
+        .on("receipt", function (receipt) {
           self.serverCallBack(receipt.transactionHash, receipt.status);
         });
     });
@@ -399,7 +401,7 @@ export class EVM extends Network {
     const txParams = {
       "to": toAddress,
       "value": this.web3.utils.toHex(ethAmount),
-      "gasLimit": this.web3.utils.toHex(3000),
+      "gasLimit": this.web3.utils.toHex(30000),
     };
     const tx = await ethAccount.signTransaction(txParams);
     if (tx && tx.rawTransaction) {
@@ -462,13 +464,45 @@ export const networkValidator = (network: string): boolean => {
 
 export const addressValidator = (address: string): boolean => {
   return !!address;
-}
+};
 
 export const mnemonicValidator = (mnemonic: string): boolean => {
   return validateMnemonic(mnemonic);
-}
+};
 
 export const privateKeyValidator = (privateKey: string): boolean => {
   return !!privateKey;
-}
+};
 
+class MyCoinClient extends CoinClient {
+  constructor(aptosClient: AptosClient) {
+    super(aptosClient);
+  }
+
+  async transferCoin(
+    from: AptosAccount,
+    to: AptosAccount | MaybeHexString,
+    amount: number | bigint,
+    coinType: string,
+    extraArgs?: OptionalTransactionArgs,
+  ): Promise<string> {
+    const coinTypeToTransfer = coinType;
+
+    const func = "0x1::aptos_account::transfer_coins";
+
+    const typeArgs = [coinTypeToTransfer];
+
+    // Get the receiver address from the AptosAccount or MaybeHexString.
+    const toAddress = getAddressFromAccountOrAddress(to);
+
+    const rawTxn = await this.aptosClient.generateTransaction(from.address(), {
+      function: func,
+      type_arguments: typeArgs,
+      arguments: [toAddress, amount],
+    });
+
+    const bcsTxn = await this.aptosClient.signTransaction(from, rawTxn);
+    const pendingTxn = await this.aptosClient.submitTransaction(bcsTxn);
+    return pendingTxn.hash;
+  }
+}

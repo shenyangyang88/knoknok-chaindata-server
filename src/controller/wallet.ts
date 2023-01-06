@@ -102,7 +102,7 @@ export default class WalletController {
   @request("post", "/wallet/assets/usdtlist")
   @body({
     network: { type: "string", required: true, description: "区块链网络：(aptos|bsc|polygon)" },
-    addressList: { type: "array", required: true, items: { type: 'string', description: "钱包地址(hex)" } },
+    addressList: { type: "array", required: true, items: { type: "string", description: "钱包地址(hex)" } },
   })
   @summary("获取钱包的USDT资产列表")
   @description(`
