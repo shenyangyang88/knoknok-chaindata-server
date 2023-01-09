@@ -41,7 +41,7 @@ export class DataSource {
   }
 
   async getKKCAssets(chainId: string, contractAddress: string): Promise<KKCAssets> {
-    if (!this.expireCacheTime(this.kkcAssetsCacheTime, (1 * 60 * 60 * 1000))) {
+    if (!this.expireCacheTime(this.kkcAssetsCacheTime, (15 * 60 * 1000))) {
       return this.kkcAssets;
     }
 
