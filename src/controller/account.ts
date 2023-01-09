@@ -2,10 +2,11 @@ import { Context } from "koa";
 import { request, summary, description, query, body, responsesAll, tagsAll } from "koa-swagger-decorator";
 
 import { NetworkFactory, networkValidator, addressValidator, privateKeyValidator, mnemonicValidator } from "../entity/network";
-import { success, failure } from "../entity/result";
+import { success } from "../entity/result";
+import { ResultError } from "../entity/error";
 
 @tagsAll(["Account"])
-@responsesAll({ 200: { description: "success" }, 500: { description: "internal server error" } })
+@responsesAll({ 200: { description: "success" } })
 export default class AccountController {
   @request("post", "/accounts/new")
   @query({
@@ -26,36 +27,29 @@ export default class AccountController {
     }
   }
   {
-    "code": 400,
-    "resultMsg": "bad request"
+    "code": 1001,
+    "resultMsg": "network is invalid"
   }
   {
     "code": 500,
     "resultMsg": "..."
   }
-  错误：
-  http status 500 internal server error
   注意：
-  接口返回的数据全部需要存库。
+  接口返回的数据，前端全部需要加密存储处理。
   `)
   public static async createAccount(ctx: Context): Promise<void> {
-    const isOK = networkValidator((ctx.query.network as string));
-    if (!isOK) {
-      ctx.status = 200;
-      ctx.body = failure(400, "bad request");
-      return;
+    const networkParam = (ctx.query.network as string);
+
+    const ok = networkValidator(networkParam);
+    if (!ok) {
+      throw new ResultError(1001, "network is invalid");
     }
 
-    const network = NetworkFactory.create((ctx.query.network as string));
+    const network = NetworkFactory.create(networkParam);
+    const account = network.createAccount();
 
-    try {
-      const account = network.createAccount();
-      ctx.status = 200;
-      ctx.body = success(account);
-    } catch (error) {
-      ctx.status = 200;
-      ctx.body = failure(500, error.message);
-    }
+    ctx.status = 200;
+    ctx.body = success(account);
   }
 
   @request("post", "/accounts/fromprivatekey")
@@ -76,36 +70,30 @@ export default class AccountController {
     }
   }
   {
-    "code": 400,
-    "resultMsg": "bad request"
+    "code": 1002,
+    "resultMsg": "please check whether the request parameters are correct"
   }
   {
     "code": 500,
     "resultMsg": "..."
   }
-  错误：
-  http status 500 internal server error
   注意：
-  接口返回的数据全部需要存库。
+  接口返回的数据，前端全部需要加密存储处理。
   `)
   public static async fromPrivateKey(ctx: Context): Promise<void> {
-    const isOK = networkValidator((ctx.request.body as any).network) && privateKeyValidator((ctx.request.body as any).privateKey);
-    if (!isOK) {
-      ctx.status = 200;
-      ctx.body = failure(400, "bad request");
-      return;
+    const networkParam = (ctx.request.body as any).network;
+    const privateKeyParam = (ctx.request.body as any).privateKey;
+
+    const ok = networkValidator(networkParam) && privateKeyValidator(privateKeyParam);
+    if (!ok) {
+      throw new ResultError(1002, "please check whether the request parameters are correct");
     }
 
-    const network = NetworkFactory.create((ctx.request.body as any).network);
+    const network = NetworkFactory.create(networkParam);
+    const account = network.fromPrivateKey(privateKeyParam);
 
-    try {
-      const account = network.fromPrivateKey((ctx.request.body as any).privateKey);
-      ctx.status = 200;
-      ctx.body = success(account);
-    } catch (error) {
-      ctx.status = 200;
-      ctx.body = failure(500, error.message);
-    }
+    ctx.status = 200;
+    ctx.body = success(account);
   }
 
   @request("post", "/accounts/frommnemonic")
@@ -128,35 +116,29 @@ export default class AccountController {
     }
   }
   {
-    "code": 400,
-    "resultMsg": "bad request"
+    "code": 1002,
+    "resultMsg": "please check whether the request parameters are correct"
   }
   {
     "code": 500,
     "resultMsg": "..."
   }
-  错误：
-  http status 500 internal server error
   注意：
-  接口返回的数据全部需要存库。
+  接口返回的数据，前端全部需要加密存储处理。
   `)
   public static async fromMnemonic(ctx: Context): Promise<void> {
-    const isOK = networkValidator((ctx.request.body as any).network) && mnemonicValidator((ctx.request.body as any).mnemonic);
-    if (!isOK) {
-      ctx.status = 200;
-      ctx.body = failure(400, "bad request");
-      return;
+    const networkParam = (ctx.request.body as any).network;
+    const mnemonicParam = (ctx.request.body as any).mnemonic;
+
+    const ok = networkValidator(networkParam) && mnemonicValidator(mnemonicParam);
+    if (!ok) {
+      throw new ResultError(1002, "please check whether the request parameters are correct");
     }
 
-    const network = NetworkFactory.create((ctx.request.body as any).network);
+    const network = NetworkFactory.create(networkParam);
+    const account = network.fromMnemonic(mnemonicParam);
 
-    try {
-      const account = network.fromMnemonic((ctx.request.body as any).mnemonic);
-      ctx.status = 200;
-      ctx.body = success(account);
-    } catch (error) {
-      ctx.status = 200;
-      ctx.body = failure(500, error.message);
-    }
+    ctx.status = 200;
+    ctx.body = success(account);
   }
 }

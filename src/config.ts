@@ -25,6 +25,8 @@ export interface Config {
   polygonPlatformPrivateKey: string;
 
   datasourceRpcURL: string;
+  datasourceApiKey: string;
+  datasourceApiSKey: string;
 }
 
 const isDevMode = process.env.NODE_ENV == "development";
@@ -55,6 +57,8 @@ const config: Config = {
   polygonPlatformPrivateKey: process.env.POLYGON_PLATFORM_PRIVATEKEY || "",
 
   datasourceRpcURL: process.env.DATASOURCE_RPC_URL || "",
+  datasourceApiKey: process.env.DATASOURCE_API_KEY || "",
+  datasourceApiSKey: process.env.DATASOURCE_API_S_KEY || "",
 };
 
 export { config };

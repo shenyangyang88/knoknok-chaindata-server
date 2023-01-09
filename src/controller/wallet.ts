@@ -2,10 +2,11 @@ import { Context } from "koa";
 import { request, summary, description, query, body, responsesAll, tagsAll } from "koa-swagger-decorator";
 
 import { NetworkFactory, networkValidator, addressValidator, mnemonicValidator, privateKeyValidator } from "../entity/network";
-import { success, failure } from "../entity/result";
+import { success } from "../entity/result";
+import { ResultError } from "../entity/error";
 
 @tagsAll(["Wallet"])
-@responsesAll({ 200: { description: "success" }, 500: { description: "internal server error" } })
+@responsesAll({ 200: { description: "success" } })
 export default class WalletController {
   @request("get", "/wallet/assets")
   @query({
@@ -26,34 +27,32 @@ export default class WalletController {
     }
   }
   {
-    "code": 400,
-    "resultMsg": "bad request"
+    "code": 1002,
+    "resultMsg": "please check whether the request parameters are correct"
+  }
+  {
+    "code": 1003,
+    "resultMsg": "invalid address"
   }
   {
     "code": 500,
     "resultMsg": "..."
   }
-  错误：
-  http status 500 internal server error
   `)
   public static async getWalletAssets(ctx: Context): Promise<void> {
-    const isOK = networkValidator((ctx.query.network as string)) && addressValidator((ctx.query.address as string));
-    if (!isOK) {
-      ctx.status = 200;
-      ctx.body = failure(400, "bad request");
-      return;
+    const networkParam = (ctx.query.network as string);
+    const addressParam = (ctx.query.address as string);
+
+    const ok = networkValidator(networkParam) && addressValidator(addressParam);
+    if (!ok) {
+      throw new ResultError(1002, "please check whether the request parameters are correct");
     }
 
-    const network = NetworkFactory.create((ctx.query.network as string));
+    const network = NetworkFactory.create(networkParam);
+    const assets = await network.getAssets(addressParam);
 
-    try {
-      const assets = await network.getAssets((ctx.query.address as string));
-      ctx.status = 200;
-      ctx.body = success(assets);
-    } catch (error) {
-      ctx.status = 200;
-      ctx.body = failure(500, error.message);
-    }
+    ctx.status = 200;
+    ctx.body = success(assets);
   }
 
   @request("get", "/wallet/assets/kkc")
@@ -74,25 +73,23 @@ export default class WalletController {
     }
   }
   {
-    "code": 400,
-    "resultMsg": "bad request"
+    "code": 1001,
+    "resultMsg": "network is invalid"
   }
   {
     "code": 500,
     "resultMsg": "..."
   }
-  错误：
-  http status 500 internal server error
   `)
   public static async getWalletKKCAssets(ctx: Context): Promise<void> {
-    const isOK = networkValidator((ctx.query.network as string));
-    if (!isOK) {
-      ctx.status = 200;
-      ctx.body = failure(400, "bad request");
-      return;
+    const networkParam = (ctx.query.network as string);
+
+    const ok = networkValidator(networkParam);
+    if (!ok) {
+      throw new ResultError(1001, "network is invalid");
     }
 
-    const network = NetworkFactory.create((ctx.query.network as string));
+    const network = NetworkFactory.create(networkParam);
     const assets = await network.getKKCAssets();
 
     ctx.status = 200;
@@ -120,26 +117,29 @@ export default class WalletController {
     ]
   }
   {
-    "code": 400,
-    "resultMsg": "bad request"
+    "code": 1002,
+    "resultMsg": "please check whether the request parameters are correct"
+  }
+  {
+    "code": 1003,
+    "resultMsg": "invalid address"
   }
   {
     "code": 500,
     "resultMsg": "..."
   }
-  错误：
-  http status 500 internal server error
   `)
   public static async getWalletUSDTAssetsList(ctx: Context): Promise<void> {
-    const isOK = networkValidator((ctx.request.body as any).network) && Array.isArray((ctx.request.body as any).addressList);
-    if (!isOK) {
-      ctx.status = 200;
-      ctx.body = failure(400, "bad request");
-      return;
+    const networkParam = (ctx.request.body as any).network;
+    const addressListParam = (ctx.request.body as any).addressList;
+
+    const ok = networkValidator(networkParam) && Array.isArray(addressListParam);
+    if (!ok) {
+      throw new ResultError(1002, "please check whether the request parameters are correct");
     }
 
-    const network = NetworkFactory.create((ctx.request.body as any).network);
-    const assetsList = await network.getUSDTAssetsList((ctx.request.body as any).addressList);
+    const network = NetworkFactory.create(networkParam);
+    const assetsList = await network.getUSDTAssetsList(addressListParam);
 
     ctx.status = 200;
     ctx.body = success(assetsList);
@@ -164,34 +164,46 @@ export default class WalletController {
     "data": "" //hash
   }
   {
-    "code": 400,
-    "resultMsg": "bad request"
+    "code": 1002,
+    "resultMsg": "please check whether the request parameters are correct"
+  }
+  {
+    "code": 1003,
+    "resultMsg": "invalid address"
+  }
+  {
+    "code": 1004,
+    "resultMsg": "invalid sign"
+  }
+  {
+    "code": 1005,
+    "resultMsg": "invalid number"
+  }
+  {
+    "code": 4001,
+    "resultMsg": "insufficient balance, unable to complete the transaction"
   }
   {
     "code": 500,
     "resultMsg": "..."
   }
-  错误：
-  http status 500 internal server error
   `)
   public static async toTransfer(ctx: Context): Promise<void> {
-    const isOK = networkValidator((ctx.request.body as any).network) && privateKeyValidator((ctx.request.body as any).fromPrivateKey) && addressValidator((ctx.request.body as any).toAddress) && (ctx.request.body as any).amount;
-    if (!isOK) {
-      ctx.status = 200;
-      ctx.body = failure(400, "bad request");
-      return;
+    const networkParam = (ctx.request.body as any).network;
+    const fromPrivateKeyParam = (ctx.request.body as any).fromPrivateKey;
+    const toAddressParam = (ctx.request.body as any).toAddress;
+    const amountParam = (ctx.request.body as any).amount;
+
+    const ok = networkValidator(networkParam) && privateKeyValidator(fromPrivateKeyParam) && addressValidator(toAddressParam) && amountParam;
+    if (!ok) {
+      throw new ResultError(1002, "please check whether the request parameters are correct");
     }
 
-    const network = NetworkFactory.create((ctx.request.body as any).network);
+    const network = NetworkFactory.create(networkParam);
+    const txHash = await network.toTransfer(fromPrivateKeyParam, toAddressParam, amountParam);
 
-    try {
-      const txHash = await network.toTransfer((ctx.request.body as any).fromPrivateKey, (ctx.request.body as any).toAddress, (ctx.request.body as any).amount);
-      ctx.status = 200;
-      ctx.body = success(txHash);
-    } catch (error) {
-      ctx.status = 200;
-      ctx.body = failure(500, error.message);
-    }
+    ctx.status = 200;
+    ctx.body = success(txHash);
   }
 
   @request("post", "/wallet/transfer/kkc")
@@ -213,33 +225,45 @@ export default class WalletController {
     "data": "" //hash
   }
   {
-    "code": 400,
-    "resultMsg": "bad request"
+    "code": 1002,
+    "resultMsg": "please check whether the request parameters are correct"
+  }
+  {
+    "code": 1003,
+    "resultMsg": "invalid address"
+  }
+  {
+    "code": 1004,
+    "resultMsg": "invalid sign"
+  }
+  {
+    "code": 1005,
+    "resultMsg": "invalid number"
+  }
+  {
+    "code": 4001,
+    "resultMsg": "insufficient balance, unable to complete the transaction"
   }
   {
     "code": 500,
     "resultMsg": "..."
   }
-  错误：
-  http status 500 internal server error
   `)
   public static async toTransferKKC(ctx: Context): Promise<void> {
-    const isOK = networkValidator((ctx.request.body as any).network) && privateKeyValidator((ctx.request.body as any).fromPrivateKey) && addressValidator((ctx.request.body as any).toAddress) && (ctx.request.body as any).amount;
-    if (!isOK) {
-      ctx.status = 200;
-      ctx.body = failure(400, "bad request");
-      return;
+    const networkParam = (ctx.request.body as any).network;
+    const fromPrivateKeyParam = (ctx.request.body as any).fromPrivateKey;
+    const toAddressParam = (ctx.request.body as any).toAddress;
+    const amountParam = (ctx.request.body as any).amount;
+
+    const ok = networkValidator(networkParam) && privateKeyValidator(fromPrivateKeyParam) && addressValidator(toAddressParam) && amountParam;
+    if (!ok) {
+      throw new ResultError(1002, "please check whether the request parameters are correct");
     }
 
-    const network = NetworkFactory.create((ctx.request.body as any).network);
+    const network = NetworkFactory.create(networkParam);
+    const txHash = await network.toTransferKKC(fromPrivateKeyParam, toAddressParam, amountParam);
 
-    try {
-      const txHash = await network.toTransferKKC((ctx.request.body as any).fromPrivateKey, (ctx.request.body as any).toAddress, (ctx.request.body as any).amount);
-      ctx.status = 200;
-      ctx.body = success(txHash);
-    } catch (error) {
-      ctx.status = 200;
-      ctx.body = failure(500, error.message);
-    }
+    ctx.status = 200;
+    ctx.body = success(txHash);
   }
 }

@@ -3,9 +3,10 @@ import { request, summary, description, query, body, responsesAll, tagsAll } fro
 
 import { NetworkFactory, networkValidator, addressValidator, mnemonicValidator, privateKeyValidator } from "../entity/network";
 import { success, failure } from "../entity/result";
+import { ResultError } from "../entity/error";
 
 @tagsAll(["Pay"])
-@responsesAll({ 200: { description: "success" }, 500: { description: "internal server error" } })
+@responsesAll({ 200: { description: "success" } })
 export default class PayController {
   @request("post", "/pay/kkc/deposit")
   @body({
@@ -25,33 +26,45 @@ export default class PayController {
     "data": "" //hash
   }
   {
-    "code": 400,
-    "resultMsg": "bad request"
+    "code": 1002,
+    "resultMsg": "please check whether the request parameters are correct"
+  }
+  {
+    "code": 1003,
+    "resultMsg": "invalid address"
+  }
+  {
+    "code": 1004,
+    "resultMsg": "invalid sign"
+  }
+  {
+    "code": 1005,
+    "resultMsg": "invalid number"
+  }
+  {
+    "code": 4001,
+    "resultMsg": "insufficient balance, unable to complete the transaction"
   }
   {
     "code": 500,
     "resultMsg": "..."
   }
-  错误：
-  http status 500 internal server error
   `)
   public static async toDepositKKC(ctx: Context): Promise<void> {
-    const isOK = networkValidator((ctx.request.body as any).network) && privateKeyValidator((ctx.request.body as any).fromPrivateKey) && (ctx.request.body as any).amount;
-    if (!isOK) {
-      ctx.status = 200;
-      ctx.body = failure(400, "bad request");
-      return;
+    const networkParam = (ctx.request.body as any).network;
+    const fromPrivateKeyParam = (ctx.request.body as any).fromPrivateKey;
+    const amountParam = (ctx.request.body as any).amount;
+
+    const ok = networkValidator(networkParam) && privateKeyValidator(fromPrivateKeyParam) && amountParam;
+    if (!ok) {
+      throw new ResultError(1002, "please check whether the request parameters are correct");
     }
 
-    const network = NetworkFactory.create((ctx.request.body as any).network);
-    try {
-      const txHash = await network.toDepositKKC((ctx.request.body as any).fromPrivateKey, (ctx.request.body as any).amount);
-      ctx.status = 200;
-      ctx.body = success(txHash);
-    } catch (error) {
-      ctx.status = 200;
-      ctx.body = failure(500, error.message);
-    }
+    const network = NetworkFactory.create(networkParam);
+    const txHash = await network.toDepositKKC(fromPrivateKeyParam, amountParam);
+
+    ctx.status = 200;
+    ctx.body = success(txHash);
   }
 
   @request("post", "/pay/kkc/withdraw")
@@ -72,33 +85,44 @@ export default class PayController {
     "data": "" //hash
   }
   {
-    "code": 400,
-    "resultMsg": "bad request"
+    "code": 1002,
+    "resultMsg": "please check whether the request parameters are correct"
+  }
+  {
+    "code": 1003,
+    "resultMsg": "invalid address"
+  }
+  {
+    "code": 1004,
+    "resultMsg": "invalid sign"
+  }
+  {
+    "code": 1005,
+    "resultMsg": "invalid number"
+  }
+  {
+    "code": 4001,
+    "resultMsg": "insufficient balance, unable to complete the transaction"
   }
   {
     "code": 500,
     "resultMsg": "..."
   }
-  错误：
-  http status 500 internal server error
   `)
   public static async toWithdrawKKC(ctx: Context): Promise<void> {
-    const isOK = networkValidator((ctx.request.body as any).network) && addressValidator((ctx.request.body as any).toAddress) && (ctx.request.body as any).amount;
-    if (!isOK) {
-      ctx.status = 200;
-      ctx.body = failure(400, "bad request");
-      return;
+    const networkParam = (ctx.request.body as any).network;
+    const toAddressParam = (ctx.request.body as any).toAddress;
+    const amountParam = (ctx.request.body as any).amount;
+
+    const ok = networkValidator(networkParam) && addressValidator(toAddressParam) && amountParam;
+    if (!ok) {
+      throw new ResultError(1002, "please check whether the request parameters are correct");
     }
 
-    const network = NetworkFactory.create((ctx.request.body as any).network);
+    const network = NetworkFactory.create(networkParam);
+    const txHash = await network.toWithdrawKKC(toAddressParam, amountParam);
 
-    try {
-      const txHash = await network.toWithdrawKKC((ctx.request.body as any).toAddress, (ctx.request.body as any).amount);
-      ctx.status = 200;
-      ctx.body = success(txHash);
-    } catch (error) {
-      ctx.status = 200;
-      ctx.body = failure(500, error.message);
-    }
+    ctx.status = 200;
+    ctx.body = success(txHash);
   }
 }

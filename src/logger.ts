@@ -3,6 +3,7 @@ import { transports, format } from "winston";
 import * as path from "path";
 
 import { config } from "./config";
+import { failure } from "./entity/result";
 
 const logger = (winstonInstance: any): any => {
     winstonInstance.configure({
@@ -23,31 +24,35 @@ const logger = (winstonInstance: any): any => {
     });
 
     return async (ctx: Context, next: () => Promise<any>): Promise<void> => {
+        let errStatus = 0;
         let errMsg = "";
 
         const startTime = new Date();
         try {
             await next();
         } catch (err) {
-            ctx.status = err.status || 500;
-            ctx.body = errMsg = err.message;
+            errStatus = err.status || 500;
+            errMsg = err.message;
+
+            ctx.status = 200;
+            ctx.body = failure(errStatus, errMsg);
         }
         const stopTime = new Date();
 
+        const ms = stopTime.getTime() - startTime.getTime();
+
+        const timeBetween = `${startTime.toLocaleString()} - ${stopTime.toLocaleString()}`;
+
         let logLevel: string;
-        if (ctx.status >= 500) {
+        if (errStatus) {
             logLevel = "error";
-        } else if (ctx.status >= 400) {
-            logLevel = "warn";
         } else {
             logLevel = "info";
         }
 
-        let msg = "";
+        let msg = `http-transport ${ms}ms [${timeBetween}] ${ctx.method} ${ctx.originalUrl} ${ctx.status}`;
         if (errMsg) {
-            msg = `http-transport ${stopTime.getTime() - startTime.getTime()}ms ${startTime.toLocaleString()}-${stopTime.toLocaleString()} ${ctx.method} ${ctx.originalUrl} ${ctx.status} ${errMsg}`;
-        } else {
-            msg = `http-transport ${stopTime.getTime() - startTime.getTime()}ms ${startTime.toLocaleString()}-${stopTime.toLocaleString()} ${ctx.method} ${ctx.originalUrl} ${ctx.status}`;
+            msg = `${msg} error -> ${errStatus} ${errMsg}`;
         }
 
         winstonInstance.log(logLevel, msg);

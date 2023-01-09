@@ -7,7 +7,9 @@ import { AptosAccount, AptosClient, CoinClient, TxnBuilderTypes, MaybeHexString,
 
 import { config } from "../config";
 import { Account } from "./account";
+import { DataSource } from "./datasource";
 import { Assets, USDTAssets, KKCAssets } from "./wallet";
+import { ResultError } from "./error";
 
 const EVM_CONTRACT_ABI = require("../evm_contract_abi.json");
 
@@ -19,25 +21,16 @@ export const APT_COIN = "0x1::aptos_coin::AptosCoin";
 export const APT_DECIMAL = "100000000";
 export const APT_KKC_DECIMAL = "1000000";
 
+const datasource = new DataSource();
+
 export abstract class Network {
   abstract createAccount(): Account;
   abstract fromPrivateKey(privateKey: string): Account;
   abstract fromMnemonic(mnemonic: string): Account;
 
   abstract getAssets(address: string): Promise<Assets>;
-  async getKKCAssets(): Promise<KKCAssets> {
-    const assets = new KKCAssets();
-    assets.price = "0.015";
-    assets.tendency = "0";
-    return assets;
-  }
+  abstract getKKCAssets(): Promise<KKCAssets>;
   abstract getUSDTAssetsList(addressList: string[]): Promise<USDTAssets[]>;
-
-  async serverCallBack(txHash: string, txStatus: boolean): Promise<void> {
-    console.log(txHash);
-    console.log(txStatus);
-    //
-  }
 
   abstract toDepositKKC(fromPrivateKey: string, amount: string): Promise<string>;
   abstract toWithdrawKKC(toAddress: string, amount: string): Promise<string>;
@@ -56,14 +49,15 @@ export class Aptos extends Network {
 
   constructor() {
     super();
+
     this.aptosClient = new AptosClient(config.aptosRPCUrl);
     this.coinClient = new MyCoinClient(this.aptosClient);
+
     this.contractAddress = config.aptosContractAddress;
   }
 
   createAccount(): Account {
-    const mnemonic = generateMnemonic();
-    return this.fromMnemonic(mnemonic);
+    return this.fromMnemonic(generateMnemonic());
   }
 
   fromPrivateKey(privateKey: string): Account {
@@ -85,11 +79,11 @@ export class Aptos extends Network {
   }
 
   async getAssets(address: string): Promise<Assets> {
-    let kkc = "0";
-    let governanceToken = "0";
-
     const { AccountAddress } = TxnBuilderTypes;
     AccountAddress.fromHex(address);
+
+    let kkc = "0";
+    let governanceToken = "0";
 
     try {
       const typeTag = `0x1::coin::CoinStore<${APT_COIN}>`;
@@ -118,10 +112,15 @@ export class Aptos extends Network {
     return assets;
   }
 
+  async getKKCAssets(): Promise<KKCAssets> {
+    return datasource.getKKCAssets(config.bscChainID, config.bscContractAddress);
+  }
+
   async getUSDTAssetsList(addressList: string[]): Promise<USDTAssets[]> {
     const list: USDTAssets[] = [];
     for (let i = 0; i < addressList.length; i++) {
       const assets = new USDTAssets();
+      assets.address = addressList[i];
       assets.usdt = "0";
       list.push(assets);
     }
@@ -132,7 +131,7 @@ export class Aptos extends Network {
     let a = "0";
     const bApt = BigNumber(apt);
     if (bApt.isNaN()) {
-      throw new Error("invalid number");
+      throw new ResultError(1005, "invalid number");
     } else {
       if (!bApt.isZero()) {
         a = bApt.multipliedBy(decimal).toFixed();
@@ -145,7 +144,7 @@ export class Aptos extends Network {
     let b = "0";
     const bBigInt = BigNumber(bigInt);
     if (bBigInt.isNaN()) {
-      throw new Error("invalid number");
+      throw new ResultError(1005, "invalid number");
     } else {
       if (!bBigInt.isZero()) {
         b = bBigInt.div(decimal).toFixed();
@@ -159,11 +158,11 @@ export class Aptos extends Network {
     const bApt = BigNumber(apt.toString());
     if (amount) {
       if (bApt.isZero() || bApt.isLessThan(amount)) {
-        throw new Error("insufficient balance, unable to complete the transaction");
+        throw new ResultError(4001, "insufficient balance, unable to complete the transaction");
       }
     } else {
       if (bApt.isZero()) {
-        throw new Error("insufficient balance, unable to complete the transaction");
+        throw new ResultError(4001, "insufficient balance, unable to complete the transaction");
       }
     }
   }
@@ -171,9 +170,7 @@ export class Aptos extends Network {
   async wrappedWaitForTransaction(txHash: string): Promise<void> {
     try {
       await this.aptosClient.waitForTransaction(txHash, { checkSuccess: true });
-      this.serverCallBack(txHash, true);
     } catch (error) {
-      this.serverCallBack(txHash, false);
     }
   }
 
@@ -229,24 +226,25 @@ export class EVM extends Network {
 
   constructor(network: string) {
     super();
+
     switch (network) {
       case BSC:
         this.web3 = new Web3(config.bscRPCUrl);
+
         this.contractAddress = config.bscContractAddress;
         break;
       case POLYGON:
         this.web3 = new Web3(config.polygonRPCUrl);
+
         this.contractAddress = config.polygonContractAddress;
         break;
-      default:
-        throw new Error("network is invalid");
     }
+
     this.network = network;
   }
 
   createAccount(): Account {
-    const mnemonic = generateMnemonic();
-    return this.fromMnemonic(mnemonic);
+    return this.fromMnemonic(generateMnemonic());
   }
 
   fromPrivateKey(privateKey: string): Account {
@@ -267,10 +265,13 @@ export class EVM extends Network {
 
   async getAssets(address: string): Promise<Assets> {
     if (!this.web3.utils.isAddress(address)) {
-      throw new Error("invalid address");
+      throw new ResultError(1003, "invalid address");
     }
 
     let governanceToken = "0";
+    let kkc = "0";
+
+
     try {
       const ethBalance = await this.web3.eth.getBalance(address);
       governanceToken = this.fromWei(ethBalance);
@@ -278,7 +279,6 @@ export class EVM extends Network {
       //
     }
 
-    let kkc = "0";
     try {
       const contract = new this.web3.eth.Contract(EVM_CONTRACT_ABI, this.contractAddress);
       const kkcBalance = await contract.methods.balanceOf(address).call();
@@ -293,21 +293,39 @@ export class EVM extends Network {
     return assets;
   }
 
+  async getKKCAssets(): Promise<KKCAssets> {
+    return datasource.getKKCAssets(config.bscChainID, config.bscContractAddress);
+  }
+
   async getUSDTAssetsList(addressList: string[]): Promise<USDTAssets[]> {
-    const list: USDTAssets[] = [];
-    for (let i = 0; i < addressList.length; i++) {
-      const assets = new USDTAssets();
-      assets.usdt = "0";
-      list.push(assets);
+    if (!addressList.length) {
+      return [];
     }
-    return list;
+
+    for (let i = 0; i < addressList.length; i++) {
+      if (!this.web3.utils.isAddress(addressList[i])) {
+        throw new ResultError(1003, "invalid address");
+      }
+    }
+
+    let chainId = "";
+    switch (this.network) {
+      case BSC:
+        chainId = config.bscChainID;
+        break;
+      case POLYGON:
+        chainId = config.polygonChainID;
+        break;
+    }
+
+    return await datasource.getUSDTAssetsList(chainId, addressList);
   }
 
   toWei(eth: string): string {
     let wei = "0";
     const bEth = BigNumber(eth);
     if (bEth.isNaN()) {
-      throw new Error("invalid number");
+      throw new ResultError(1005, "invalid number");
     } else {
       if (!bEth.isZero()) {
         wei = this.web3.utils.toWei(bEth.toFixed());
@@ -320,7 +338,7 @@ export class EVM extends Network {
     let eth = "0";
     const bWei = BigNumber(wei);
     if (bWei.isNaN()) {
-      throw new Error("invalid number");
+      throw new ResultError(1005, "invalid number");
     } else {
       if (!bWei.isZero()) {
         eth = this.web3.utils.fromWei(bWei.toFixed());
@@ -335,17 +353,16 @@ export class EVM extends Network {
     const bEth = BigNumber(eth);
     if (amount) {
       if (bEth.isZero() || bEth.isLessThan(BigNumber(gas).plus(amount))) {
-        throw new Error("insufficient balance, unable to complete the transaction");
+        throw new ResultError(4001, "insufficient balance, unable to complete the transaction");
       }
     } else {
       if (bEth.isZero() || bEth.isLessThan(gas)) {
-        throw new Error("insufficient balance, unable to complete the transaction");
+        throw new ResultError(4001, "insufficient balance, unable to complete the transaction");
       }
     }
   }
 
   async wrappedSendSignedTransaction(rawTransaction: string): Promise<string> {
-    const self = this;
     return new Promise<string>((resolve, reject) => {
       this.web3.eth.sendSignedTransaction(rawTransaction, (error, hash) => {
         if (!error) {
@@ -355,7 +372,7 @@ export class EVM extends Network {
         }
       })
         .on("receipt", function (receipt) {
-          self.serverCallBack(receipt.transactionHash, receipt.status);
+          console.log(receipt);
         });
     });
   }
@@ -390,7 +407,7 @@ export class EVM extends Network {
 
   async toTransfer(fromPrivateKey: string, toAddress: string, amount: string): Promise<string> {
     if (!this.web3.utils.isAddress(toAddress)) {
-      throw new Error("invalid address");
+      throw new ResultError(1003, "invalid address");
     }
 
     const ethAmount = this.toWei(amount);
@@ -408,12 +425,12 @@ export class EVM extends Network {
       return this.wrappedSendSignedTransaction(tx.rawTransaction);
     }
 
-    throw new Error("invalid sign");
+    throw new ResultError(1004, "invalid sign");
   }
 
   async toTransferKKC(fromPrivateKey: string, toAddress: string, amount: string): Promise<string> {
     if (!this.web3.utils.isAddress(toAddress)) {
-      throw new Error("invalid address");
+      throw new ResultError(1003, "invalid address");
     }
 
     const kkcAmount = this.toWei(amount);
@@ -434,7 +451,7 @@ export class EVM extends Network {
       return this.wrappedSendSignedTransaction(tx.rawTransaction);
     }
 
-    throw new Error("invalid sign");
+    throw new ResultError(1004, "invalid sign");
   }
 }
 
@@ -447,8 +464,6 @@ export class NetworkFactory {
       case POLYGON:
         return new EVM(network);
     }
-
-    throw new Error("network is invalid");
   }
 }
 
@@ -484,13 +499,10 @@ class MyCoinClient extends CoinClient {
     to: AptosAccount | MaybeHexString,
     amount: number | bigint,
     coinType: string,
-    extraArgs?: OptionalTransactionArgs,
   ): Promise<string> {
-    const coinTypeToTransfer = coinType;
-
     const func = "0x1::aptos_account::transfer_coins";
 
-    const typeArgs = [coinTypeToTransfer];
+    const typeArgs = [coinType];
 
     // Get the receiver address from the AptosAccount or MaybeHexString.
     const toAddress = getAddressFromAccountOrAddress(to);
