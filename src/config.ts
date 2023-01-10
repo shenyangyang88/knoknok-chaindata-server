@@ -27,6 +27,8 @@ export interface Config {
   datasourceRpcURL: string;
   datasourceApiKey: string;
   datasourceApiSKey: string;
+
+  txCallBackUrl: string;
 }
 
 const isDevMode = process.env.NODE_ENV == "development";
@@ -59,6 +61,8 @@ const config: Config = {
   datasourceRpcURL: process.env.DATASOURCE_RPC_URL || "",
   datasourceApiKey: process.env.DATASOURCE_API_KEY || "",
   datasourceApiSKey: process.env.DATASOURCE_API_S_KEY || "",
+
+  txCallBackUrl: process.env.TX_CALLBACK_URL || "",
 };
 
 export { config };

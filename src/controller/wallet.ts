@@ -151,6 +151,7 @@ export default class WalletController {
     fromPrivateKey: { type: "string", required: true, description: "发送方钱包私钥(hex)" },
     toAddress: { type: "string", required: true, description: "接受方钱包地址(hex)" },
     amount: { type: "string", required: true, description: "金额(kkc)" },
+    type: { type: "string", required: true, description: "转账类型 0链上资产转入 1链上资产转出" },
   })
   @summary("区块链治理代币交易")
   @description(`
@@ -193,6 +194,7 @@ export default class WalletController {
     const fromPrivateKeyParam = (ctx.request.body as any).fromPrivateKey;
     const toAddressParam = (ctx.request.body as any).toAddress;
     const amountParam = (ctx.request.body as any).amount;
+    const txTypeParam = (ctx.request.body as any).type;
 
     const ok = networkValidator(networkParam) && privateKeyValidator(fromPrivateKeyParam) && addressValidator(toAddressParam) && amountParam;
     if (!ok) {
@@ -200,7 +202,7 @@ export default class WalletController {
     }
 
     const network = NetworkFactory.create(networkParam);
-    const txHash = await network.toTransfer(fromPrivateKeyParam, toAddressParam, amountParam);
+    const txHash = await network.toTransfer(fromPrivateKeyParam, toAddressParam, amountParam, txTypeParam);
 
     ctx.status = 200;
     ctx.body = success(txHash);
@@ -212,6 +214,7 @@ export default class WalletController {
     fromPrivateKey: { type: "string", required: true, description: "发送方钱包私钥(hex)" },
     toAddress: { type: "string", required: true, description: "接受方钱包地址(hex)" },
     amount: { type: "string", required: true, description: "金额(kkc)" },
+    type: { type: "string", required: true, description: "转账类型 0链上资产转入 1链上资产转出" },
   })
   @summary("区块链KKC代币交易")
   @description(`
@@ -254,6 +257,7 @@ export default class WalletController {
     const fromPrivateKeyParam = (ctx.request.body as any).fromPrivateKey;
     const toAddressParam = (ctx.request.body as any).toAddress;
     const amountParam = (ctx.request.body as any).amount;
+    const txTypeParam = (ctx.request.body as any).type;
 
     const ok = networkValidator(networkParam) && privateKeyValidator(fromPrivateKeyParam) && addressValidator(toAddressParam) && amountParam;
     if (!ok) {
@@ -261,7 +265,7 @@ export default class WalletController {
     }
 
     const network = NetworkFactory.create(networkParam);
-    const txHash = await network.toTransferKKC(fromPrivateKeyParam, toAddressParam, amountParam);
+    const txHash = await network.toTransferKKC(fromPrivateKeyParam, toAddressParam, amountParam, txTypeParam);
 
     ctx.status = 200;
     ctx.body = success(txHash);

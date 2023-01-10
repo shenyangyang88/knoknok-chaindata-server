@@ -10,6 +10,7 @@ import { Account } from "./account";
 import { DataSource } from "./datasource";
 import { Assets, USDTAssets, KKCAssets } from "./wallet";
 import { ResultError } from "./error";
+import { TxCallBack } from "./tx";
 
 const EVM_CONTRACT_ABI = require("../evm_contract_abi.json");
 
@@ -22,6 +23,7 @@ export const APT_DECIMAL = "100000000";
 export const APT_KKC_DECIMAL = "1000000";
 
 const datasource = new DataSource();
+const txCallBack = new TxCallBack();
 
 export abstract class Network {
   abstract createAccount(): Account;
@@ -35,8 +37,8 @@ export abstract class Network {
   abstract toDepositKKC(fromPrivateKey: string, amount: string): Promise<string>;
   abstract toWithdrawKKC(toAddress: string, amount: string): Promise<string>;
 
-  abstract toTransfer(fromPrivateKey: string, toAddress: string, amount: string): Promise<string>;
-  abstract toTransferKKC(fromPrivateKey: string, toAddress: string, amount: string): Promise<string>;
+  abstract toTransfer(fromPrivateKey: string, toAddress: string, amount: string, txType: string): Promise<string>;
+  abstract toTransferKKC(fromPrivateKey: string, toAddress: string, amount: string, txType: string): Promise<string>;
 }
 
 export class Aptos extends Network {
@@ -167,22 +169,29 @@ export class Aptos extends Network {
     }
   }
 
-  async wrappedWaitForTransaction(txHash: string): Promise<void> {
+  async wrappedWaitForTransaction(txHash: string, txType: string): Promise<void> {
+    let status = false;
     try {
       await this.aptosClient.waitForTransaction(txHash, { checkSuccess: true });
-    } catch (error) {
+      status = true;
+    } catch (_) {
+      //
     }
+
+    txCallBack.txCallBack(status, txHash, txType);
   }
 
   async toDepositKKC(fromPrivateKey: string, amount: string): Promise<string> {
-    return this.toTransfer(fromPrivateKey, config.aptosPlatformAddress, amount);
+    const txType = "2";
+    return this.toTransfer(fromPrivateKey, config.aptosPlatformAddress, amount, txType);
   }
 
   async toWithdrawKKC(toAddress: string, amount: string): Promise<string> {
-    return this.toTransferKKC(config.aptosPlatformPrivateKey, toAddress, amount);
+    const txType = "3";
+    return this.toTransferKKC(config.aptosPlatformPrivateKey, toAddress, amount, txType);
   }
 
-  async toTransfer(fromPrivateKey: string, toAddress: string, amount: string): Promise<string> {
+  async toTransfer(fromPrivateKey: string, toAddress: string, amount: string, txType: string): Promise<string> {
     const { AccountAddress } = TxnBuilderTypes;
     AccountAddress.fromHex(toAddress);
 
@@ -194,11 +203,11 @@ export class Aptos extends Network {
     await this.checkTransaction(fromAccount.address().hex(), aptAmount);
 
     const txHash = await this.coinClient.transfer(fromAccount, toAddress, BigInt(aptAmount), { createReceiverIfMissing: true });
-    this.wrappedWaitForTransaction(txHash);
+    this.wrappedWaitForTransaction(txHash, txType);
     return txHash;
   }
 
-  async toTransferKKC(fromPrivateKey: string, toAddress: string, amount: string): Promise<string> {
+  async toTransferKKC(fromPrivateKey: string, toAddress: string, amount: string, txType: string): Promise<string> {
     const { AccountAddress } = TxnBuilderTypes;
     AccountAddress.fromHex(toAddress);
 
@@ -211,7 +220,7 @@ export class Aptos extends Network {
 
     const txHash = await this.coinClient.transfer(fromAccount, toAddress, BigInt(kkcAmount), { coinType: this.contractAddress });
     // const txHash = await this.coinClient.transferCoin(fromAccount, toAddress, BigInt(kkcAmount), this.contractAddress);
-    this.wrappedWaitForTransaction(txHash);
+    this.wrappedWaitForTransaction(txHash, txType);
     return txHash;
   }
 }
@@ -362,7 +371,7 @@ export class EVM extends Network {
     }
   }
 
-  async wrappedSendSignedTransaction(rawTransaction: string): Promise<string> {
+  async wrappedSendSignedTransaction(rawTransaction: string, txType: string): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       this.web3.eth.sendSignedTransaction(rawTransaction, (error, hash) => {
         if (!error) {
@@ -372,7 +381,7 @@ export class EVM extends Network {
         }
       })
         .on("receipt", function (receipt) {
-          console.log(receipt);
+          txCallBack.txCallBack(receipt.status, receipt.transactionHash, txType);
         });
     });
   }
@@ -388,7 +397,9 @@ export class EVM extends Network {
         break;
     }
 
-    return this.toTransferKKC(fromPrivateKey, platformAddress, amount);
+    const txType = "2";
+
+    return this.toTransferKKC(fromPrivateKey, platformAddress, amount, txType);
   }
 
   async toWithdrawKKC(toAddress: string, amount: string): Promise<string> {
@@ -402,10 +413,12 @@ export class EVM extends Network {
         break;
     }
 
-    return this.toTransferKKC(platformPrivateKey, toAddress, amount);
+    const txType = "3";
+
+    return this.toTransferKKC(platformPrivateKey, toAddress, amount, txType);
   }
 
-  async toTransfer(fromPrivateKey: string, toAddress: string, amount: string): Promise<string> {
+  async toTransfer(fromPrivateKey: string, toAddress: string, amount: string, txType: string): Promise<string> {
     if (!this.web3.utils.isAddress(toAddress)) {
       throw new ResultError(1003, "invalid address");
     }
@@ -422,13 +435,13 @@ export class EVM extends Network {
     };
     const tx = await ethAccount.signTransaction(txParams);
     if (tx && tx.rawTransaction) {
-      return this.wrappedSendSignedTransaction(tx.rawTransaction);
+      return this.wrappedSendSignedTransaction(tx.rawTransaction, txType);
     }
 
     throw new ResultError(1004, "invalid sign");
   }
 
-  async toTransferKKC(fromPrivateKey: string, toAddress: string, amount: string): Promise<string> {
+  async toTransferKKC(fromPrivateKey: string, toAddress: string, amount: string, txType: string): Promise<string> {
     if (!this.web3.utils.isAddress(toAddress)) {
       throw new ResultError(1003, "invalid address");
     }
@@ -448,7 +461,7 @@ export class EVM extends Network {
     };
     const tx = await ethAccount.signTransaction(txParams);
     if (tx && tx.rawTransaction) {
-      return this.wrappedSendSignedTransaction(tx.rawTransaction);
+      return this.wrappedSendSignedTransaction(tx.rawTransaction, txType);
     }
 
     throw new ResultError(1004, "invalid sign");
